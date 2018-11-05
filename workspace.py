@@ -1,136 +1,258 @@
-import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_absolute_error
-import sys
-from pystacknet.pystacknet import StackNetRegressor
-from sklearn.ensemble import ExtraTreesRegressor, GradientBoostingRegressor, ExtraTreesRegressor
+import datetime
+import math
+import numpy as np
+
 from sklearn import model_selection
+from sklearn.metrics import mean_squared_error, mean_absolute_error
 from xgboost import XGBRegressor
+from sklearn.kernel_ridge import KernelRidge
+from sklearn.linear_model import Ridge, LinearRegression, BayesianRidge, SGDRegressor
 
-from sklearn.model_selection import cross_val_score, RandomizedSearchCV
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.svm import SVR
 
-from sklearn.linear_model import Ridge, LinearRegression
+from sklearn.ensemble import RandomForestRegressor, AdaBoostRegressor, GradientBoostingRegressor, ExtraTreesRegressor, BaggingRegressor
+from sklearn.model_selection import RandomizedSearchCV, GridSearchCV, StratifiedKFold, cross_val_score
 
-def validation_process(model, X, y, parameters, n_folds):
+from sklearn.neural_network import MLPRegressor
+from pystacknet.pystacknet import StackNetRegressor
+from rgf.sklearn import RGFRegressor
+import sys
+import sqlite3
 
-    gb_grid = RandomizedSearchCV(model,
-                            parameters,
-                            cv = n_folds,
-                            scoring='neg_mean_absolute_error', 
-                            n_jobs = 1,
-                            iid = True,
-                            verbose=True)
 
-    gb_grid.fit(X_train,y_train)
-    print(gb_grid.best_params_)
-    print(gb_grid.best_score_)
-    return gb_grid.best_params_ 
-
+# --------------------------
+# ---- Helper functions ----
+# --------------------------
 
 url = 'C:\\Users\\brendon.pitcher\\Documents\\Brendon\\Dev\\PlayTime\\Zindi\\TrafficJam\\train_revised.csv'
 df = pd.read_csv(url)
-columns = ['ride_id', 'travel_date', 'travel_time', 'travel_from', 'car_type', 'max_capacity']
+columns = ['ride_id', 'travel_date', 'travel_time', 'travel_from', 'car_type']
 df_train_set = df.groupby(columns).size().reset_index(name='number_of_tickets')
+df_train_set = df_train_set.sort_values('travel_date', ascending=False)
 
+df_train_set["travel_date"] = pd.to_datetime(df_train_set["travel_date"], infer_datetime_format=True)
 df_train_set.drop(['ride_id'], axis=1, inplace=True) #ride_id is unnecessary in training set
 
-df_train_set["travel_date"] = pd.to_datetime(df_train_set["travel_date"],infer_datetime_format=True)
-df_train_set["travel_date"] = df_train_set["travel_date"].dt.dayofweek
+# uber imports
+base = 'C:\\Users\\brendon.pitcher\\Documents\\Brendon\\Dev\\PlayTime\\Zindi\\TrafficJam\\'
+urls = [
+    'Data\\WestLands_2017-4-6_week_avg.csv',
+    'Data\\WestLands_2017-7-9_week_avg.csv',
+    'Data\\WestLands_2017-10-12_week_avg.csv',
+    'Data\\WestLands_2018-1-3_week_avg.csv',
+    'Data\\WestLands_2018-4-6_week_avg.csv',
+    'Data\\WestLands_2017-1-3_week_avg.csv'
+]
 
-df_train_set["day"] = pd.to_datetime(df_train_set["travel_date"],infer_datetime_format=True)
-df_train_set["day"] = df_train_set["day"].dt.day
+uber = pd.DataFrame()
+for url in urls:
+    df_url = base + url
+    data = pd.read_csv(df_url)
+    uber = pd.concat([uber, data])
 
-df_train_set['max_capacity'] = np.where(df_train_set['max_capacity'] == 49, 1, 0)
+uber = uber[[
+       'Day Of Week', 'Date Range',
+       'Mean Travel Time (Seconds)',
+       'Range - Lower Bound Travel Time (Seconds)',
+       'Range - Upper Bound Travel Time (Seconds)'
+]]
+
+# print(uber['Date Range'].head(50))
+
+uber.columns = ['day_of_week', 'date_range', 'mean_travel_day', 'lower_travel_day', 'upper_travel_day']
+uber[['date_start', 'date_end']] = uber['date_range'].replace([', Daily Average', ' '], '', regex=True).str.split('-', expand=True)
+                                        
+uber.drop('date_range', axis=1, inplace=True)
+
+uber["date_start"] = pd.to_datetime(uber["date_start"],infer_datetime_format=True)
+uber["date_end"] = pd.to_datetime(uber["date_end"],infer_datetime_format=True)
+
+def cat_day_of_week(x):
+    day = x['day_of_week']
+    if day == 'Monday':
+        return 0
+    elif day == 'Tuesday':
+        return 1
+    elif day == 'Wednesday':
+        return 2
+    elif day == 'Thursday':
+        return 3
+    elif day == 'Friday':
+        return 4
+    elif day == 'Saturday':
+        return 5
+    elif day == 'Sunday':
+        return 6
+
+
+uber['day_of_week'] = uber.apply(cat_day_of_week, axis=1)
+
+ub_future = uber[uber['date_start'] > '2017-06-29']
+ub_future = ub_future[ub_future['date_end'] < '2018-01-01']
+ub_future['date_start'] = ub_future['date_start'] - pd.DateOffset(years=-1)
+ub_future['date_end'] = ub_future['date_end'] - pd.DateOffset(years=-1)
+uber = pd.concat([uber, ub_future])
+
+
+df_train_set["travel_date"] = pd.to_datetime(df_train_set["travel_date"], infer_datetime_format=True)
+
+df_train_set["day_of_week"] = df_train_set["travel_date"].dt.dayofweek #change the full date to day of week
+df_train_set['is_weekend'] = np.where(df_train_set['day_of_week'] >= 5, 1, 0)
+
+#Make the db in memory
+conn = sqlite3.connect(':memory:')
+#write the tables
+df_train_set.to_sql('train', conn, index=False)
+uber.to_sql('uber', conn, index=False)
+
+qry = '''
+    select  
+        train.*,
+        uber.mean_travel_day,
+        uber.lower_travel_day,
+        uber.upper_travel_day
+    from
+        train
+    inner join uber on train.day_of_week = uber.day_of_week 
+      AND train.travel_date between uber.date_start and uber.date_end
+    '''
+
+df_train_set = pd.read_sql_query(qry, conn)
 
 df_train_set["car_type"] = pd.Categorical(df_train_set["car_type"])
-car_type_categories = df_train_set.car_type.cat.categories
-df_train_set["car_type"] = df_train_set.car_type.cat.codes
+car_type_categories = df_train_set['car_type'].cat.categories
+df_train_set["car_type"] = df_train_set['car_type'].cat.codes
 
-df_train_set = pd.concat([df_train_set, pd.get_dummies(df_train_set['travel_from'], prefix='travel_from')], axis=1).drop(['travel_from'], axis=1)
+df_train_set["travel_from"] = pd.Categorical(df_train_set["travel_from"])
+travel_from_categories = df_train_set['travel_from'].cat.categories
+df_train_set["travel_from"] = df_train_set['travel_from'].cat.codes
 
-#df_train_set["travel_from"] = pd.Categorical(df_train_set["travel_from"])
-#travel_from_categories = df_train_set.travel_from.cat.categories
-#df_train_set["travel_from"] = df_train_set.travel_from.cat.codes
-
+#express travel time in minutes
 df_train_set["travel_time"] = df_train_set["travel_time"].str.split(':').apply(lambda x: int(x[0]) * 60 + int(x[1]))
 
-#print(df_train_set.head(5))
+# def concat_travel_columns(x):
+#     time = x['travel_time'] / 60
+
+#     if time >= 7 and time < 10:
+#         return 1, x['am']
+#     elif time >= 10 and time < 14:
+#         return 2, x['mid']
+#     elif time >= 14 and time < 19:
+#         return 3, x['pm']
+#     elif time >= 19 and time <= 24:
+#         return 4, x['eve']
+#     elif time >= 1 and time < 7:
+#         return 5, x['morn']
+#     else:
+#         return 6, 6
+
+
+# df_train_set['day_part'], df_train_set['travel_dense'] = zip(*df_train_set.apply(concat_travel_columns, axis=1))
+
+# df_train_set.drop(['am', 'pm', 'mid', 'eve', 'morn', 'daily', 'day_part'], axis=1, inplace=True)
+
+from sklearn.preprocessing import StandardScaler 
+
+df_train_set['range'] = df_train_set['upper_travel_day'] - df_train_set['lower_travel_day']  
+
+scaled_features = df_train_set.copy()
+col_names = ['mean_travel_day', 'range']
+
+features = scaled_features[col_names]
+scaler = StandardScaler().fit(features.values)
+features = scaler.transform(features.values)
+
+df_train_set[col_names] = features
+
 
 # ------ model
-
-X = df_train_set.drop(["number_of_tickets"], axis=1)
-y = df_train_set.number_of_tickets  
-
-X_train, X_test, y_train, y_test = model_selection.train_test_split(X, y, test_size=0.25, shuffle=False)
-
-model = RandomForestRegressor(n_estimators=50, criterion="mae", max_features=0.7, random_state=1, oob_score=True)
-#model = ExtraTreesRegressor(n_estimators=120, criterion="mae", max_features=0.5, random_state=1)
-
-parameters = {
-    'bootstrap': [True, False],
-    'max_depth': [10, 20, 30, 50, 60, 80, 90, 100, None],
-    'max_features': ['auto', 'sqrt'],
-    'min_samples_leaf': [1, 2, 4],
-    'min_samples_split': [2, 5, 10],
-    'n_estimators': [50, 75, 100, 150, 200, 250],
-    'criterion': ["mae"]
-    }
-
-best_params = {'oob_score':True, 'n_estimators': 50, 'min_samples_split': 5, 'min_samples_leaf': 4, 'max_features': 'auto', 'max_depth': 80, 'criterion': 'mae', 'bootstrap': True}
-
-#best_params = validation_process(model, X, y, parameters, 5)
-
-model = RandomForestRegressor(**best_params)
-
-model.fit(X_train, y_train)
-preds_train_set = model.predict(X_test)
-
-print(mean_absolute_error(preds_train_set,y_test))
+X = df_train_set.drop(["number_of_tickets", 'travel_date', 'upper_travel_day', 'lower_travel_day'], axis=1)
+y = df_train_set['number_of_tickets']
 
 
+X_train, X_test, y_train, y_test = model_selection.train_test_split(X, y, test_size=0.3, shuffle=True)
 
-sys.exit()
 
-# ----------------------
-# ---- Test dataset ----
-# ----------------------
+# ------------------------------------------------------------------------------ MODEL
 
+## bagging example
 df_test_set = pd.read_csv('test_questions.csv', low_memory=False)
 
 df_test_set.drop(['travel_to'], axis=1, inplace=True)
+df_test_set = df_test_set.sort_values('travel_date', ascending=False)
 
 df_test_set["travel_date"] = pd.to_datetime(df_test_set["travel_date"],infer_datetime_format=True)
-df_test_set["travel_date"] = df_test_set["travel_date"].dt.dayofweek
+df_test_set["day_of_week"] = df_test_set["travel_date"].dt.dayofweek
 
-df_test_set["day"] = pd.to_datetime(df_test_set["travel_date"],infer_datetime_format=True)
-df_test_set["day"] = df_test_set["day"].dt.day
+df_test_set.to_sql('test', conn, index=False)
 
-df_test_set["car_type"] = pd.Categorical(df_test_set["car_type"], categories=car_type_categories)
-df_test_set["car_type"] = df_test_set.car_type.cat.codes
+qry = '''
+    select  
+        test.*,
+        uber.mean_travel_day,
+        uber.lower_travel_day,
+        uber.upper_travel_day
+    from
+        test
+    inner join uber on test.day_of_week = uber.day_of_week 
+      AND test.travel_date between uber.date_start and uber.date_end
+    '''
 
-#df_test_set["travel_from"] = pd.Categorical(df_test_set["travel_from"], categories=travel_from_categories)
-#df_test_set["travel_from"] = df_test_set.travel_from.cat.codes
+# df_test_set = pd.read_sql_query(qry, conn)
 
-df_test_set = pd.concat([df_test_set, pd.get_dummies(df_test_set['travel_from'], prefix='travel_from')], axis=1).drop(['travel_from'], axis=1)
+# df_test_set["car_type"] = pd.Categorical(df_test_set["car_type"], categories=car_type_categories)
+# df_test_set["car_type"] = df_test_set['car_type'].cat.codes
+
+# df_test_set["travel_from"] = pd.Categorical(df_test_set["travel_from"], categories=travel_from_categories)
+# df_test_set["travel_from"] = df_test_set['travel_from'].cat.codes
+
+# df_test_set["travel_time"] = df_test_set["travel_time"].str.split(':').apply(lambda x: int(x[0]) * 60 + int(x[1]))
+# df_test_set['is_weekend'] = np.where(df_test_set['day_of_week'] >= 5, 1, 0)
+
+# df_test_set['range'] = df_test_set['upper_travel_day'] - df_test_set['lower_travel_day']  
 
 
-df_test_set["travel_time"] = df_test_set["travel_time"].str.split(':').apply(lambda x: int(x[0]) * 60 + int(x[1]))
+# X_test = df_test_set.drop(['ride_id', 'max_capacity', 'travel_date', 'lower_travel_day', 'upper_travel_day'], axis=1)
+# X_test = X_test[X_train.columns]
 
-X_test = df_test_set.drop(['ride_id'], axis=1)
 
-# add columns to test set if they dont exist after feature encoding
-if ((len(X.columns)) > (len(X_test.columns) + 1)):
-    missing_columns = list(set(X.columns) - set(X_test.columns) - set(['number_of_tickets']))
+model = RandomForestRegressor(
+        n_estimators=150, 
+        criterion="mse", 
+        max_depth=10, 
+        min_samples_split=9, 
+        min_samples_leaf=1, 
+        min_weight_fraction_leaf=0, 
+        max_leaf_nodes=None, 
+        min_impurity_decrease=0.0005, 
+        oob_score=True)
 
-    for miss in missing_columns:
-        X_test[miss] = 0
+model = XGBRegressor(n_estimators=100, criterion="mae", max_depth=12, subsample=0.5, learning_rate=0.05, colsample_bytree=0.9)
+model.fit(X, y)
 
-test_set_predictions = model.predict(X_test)
 
-d = {'ride_id': df_test_set["ride_id"], 'number_of_ticket': test_set_predictions}
-df_predictions = pd.DataFrame(data=d)
-df_predictions = df_predictions[['ride_id','number_of_ticket']]
+bags = 10
+seed = 1
 
-df_predictions.to_csv('results.csv', index=False)
+scores = cross_val_score(model, X, y, scoring='neg_mean_absolute_error', cv=5)
+print(sum(scores) / len(scores))
 
+bagged_prediction = np.zeros(X_test.shape[0])
+
+for n in range(0, bags):
+    model.set_params(random_state=seed + n)
+    model.fit(X_train, y_train)
+    preds = model.predict(X_test)
+    bagged_prediction += preds
+
+bagged_prediction /= bags
+
+print(mean_absolute_error(y_test, bagged_prediction))
+
+# d = {'ride_id': df_test_set["ride_id"], 'number_of_ticket': bagged_prediction}
+# df_predictions = pd.DataFrame(data=d)
+# df_predictions = df_predictions[['ride_id','number_of_ticket']]
+
+# df_predictions.to_csv('results.csv', index=False)

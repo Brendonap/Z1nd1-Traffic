@@ -5,9 +5,9 @@ import numpy as np
 
 from sklearn import model_selection
 from sklearn.metrics import mean_squared_error, mean_absolute_error
-from xgboost import XGBRegressor
+from xgboost import XGBRegressor, XGBClassifier
 from sklearn.kernel_ridge import KernelRidge
-from sklearn.linear_model import Ridge, LinearRegression
+from sklearn.linear_model import Ridge, LinearRegression, BayesianRidge, SGDRegressor
 
 from sklearn.neighbors import KNeighborsRegressor
 from sklearn.svm import SVR
@@ -17,6 +17,7 @@ from sklearn.model_selection import RandomizedSearchCV, GridSearchCV, Stratified
 
 from sklearn.neural_network import MLPRegressor
 from pystacknet.pystacknet import StackNetRegressor
+from rgf.sklearn import RGFRegressor
 import sys
 
 
@@ -26,7 +27,7 @@ import sys
 
 url = 'C:\\Users\\brendon.pitcher\\Documents\\Brendon\\Dev\\PlayTime\\Zindi\\TrafficJam\\train_revised.csv'
 df = pd.read_csv(url)
-columns = ['ride_id', 'travel_date', 'travel_time', 'travel_from', 'car_type', 'max_capacity']
+columns = ['ride_id', 'travel_date', 'travel_time', 'travel_from', 'car_type']
 df_train_set = df.groupby(columns).size().reset_index(name='number_of_tickets')
 df_train_set = df_train_set.sort_values('travel_date', ascending=False)
 
@@ -40,43 +41,40 @@ car_type_categories = df_train_set.car_type.cat.categories
 df_train_set["car_type"] = df_train_set.car_type.cat.codes
 
 df_train_set = df_train_set.replace(['Kendu Bay', 'Oyugis', 'Keumbu'], 'other')
-df_train_set = pd.concat([df_train_set, pd.get_dummies(df_train_set['travel_from'], prefix='travel_from')], axis=1).drop(['travel_from'], axis=1)
-
-#df_train_set = df_train_set.replace(['Kendu Bay', 'Oyugis', 'Keumbu'], 'other')
-#df_train_set["travel_from"] = pd.Categorical(df_train_set["travel_from"])
-#travel_from_categories = df_train_set.travel_from.cat.categories
-#df_train_set["travel_from"] = df_train_set.travel_from.cat.codes
+df_train_set["travel_from"] = pd.Categorical(df_train_set["travel_from"])
+travel_from_categories = df_train_set.travel_from.cat.categories
+df_train_set["travel_from"] = df_train_set.travel_from.cat.codes
 
 #express travel time in minutes
 df_train_set["travel_time"] = df_train_set["travel_time"].str.split(':').apply(lambda x: int(x[0]) * 60 + int(x[1]))
+df_train_set['is_weekend'] = np.where(df_train_set['travel_date'] >= 5, 1, 0)
 
 # ------ model
 X = df_train_set.drop(["number_of_tickets"], axis=1)
-y = df_train_set.number_of_tickets
+y = df_train_set.number_of_tickets  
 
-#X_train, X_test, y_train, y_test = model_selection.train_test_split(X, y, test_size=0.25, shuffle=True)
+X_train, X_test, y_train, y_test = model_selection.train_test_split(X, y, test_size=0.25, shuffle=True)
 
-from sklearn.preprocessing import StandardScaler  
-scaler = StandardScaler()  
-#scaler.fit(X)
-#X = scaler.transform(X)
 
-br = AdaBoostRegressor(ExtraTreesRegressor(),n_estimators=8, learning_rate= 0.05)
-params = {
-    'base_estimator': [ExtraTreesRegressor(), Ridge(), KernelRidge()],
-    'n_estimators': [2, 5, 8, 10, 20],
-    'learning_rate': [0.05, 0.2, 0.5],
-}
 
-model = RandomizedSearchCV(br, params, scoring='neg_mean_absolute_error', cv=5, verbose=1)
+from vecstack import StackingTransformer
 
-model.fit(X, y)
+estimators_L1 = [
+    ('et', ExtraTreesRegressor(n_estimators=100, criterion="mae", random_state=1)),
+    ('rf', RandomForestRegressor(n_estimators=100, criterion="mse",max_depth=10,min_samples_split=9,min_samples_leaf=1,min_weight_fraction_leaf=0,max_leaf_nodes=None,min_impurity_decrease=0.0005)),
+    ('xgb', XGBRegressor(n_estimators=100, criterion="mae", max_depth=12, subsample=0.5, learning_rate=0.05, colsample_bytree=0.9))
+    ]
+# Stacking
+stack = StackingTransformer(estimators=estimators_L1,regression=True,shuffle=True,random_state=0,verbose=2, stratified=True, n_folds=5)
+stack = stack.fit(X_train, y_train)
 
-print(model.best_score_)
-print(model.best_params_)
+S_train = stack.transform(X_train)
+S_test = stack.transform(X_test)
 
-#{'n_estimators': 5, 'learning_rate': 0.05}
+# Use 2nd level estimator to get final prediction
+estimator_L2 = XGBRegressor(random_state=0,n_jobs=-1,learning_rate=0.1,n_estimators=100,max_depth=3)
+estimator_L2 = estimator_L2.fit(S_train, y_train)
+y_pred = estimator_L2.predict(S_test)
 
-#scores = cross_val_score(br, X, y, scoring='neg_mean_absolute_error', cv=5)
-#print(sum(scores) / len(scores))
-
+# Final prediction score
+print('Final score: [%.8f]' % mean_absolute_error(y_test, y_pred))
