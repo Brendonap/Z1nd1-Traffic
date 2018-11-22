@@ -2,10 +2,11 @@ import pandas as pd
 import datetime
 import math
 import numpy as np
+import uber_data_current as udc
 
 from sklearn import model_selection
 from sklearn.metrics import mean_squared_error, mean_absolute_error
-from xgboost import XGBRegressor, XGBClassifier
+# from xgboost import XGBRegressor
 from sklearn.kernel_ridge import KernelRidge
 from sklearn.linear_model import Ridge, LinearRegression, BayesianRidge, SGDRegressor
 
@@ -38,6 +39,14 @@ df_train_set.drop(['ride_id'], axis=1, inplace=True)
 # df_train_set = df_train_set.replace(['Kendu Bay', 'Oyugis', 'Keumbu'], 'other')
 df_train_set["travel_date"] = pd.to_datetime(df_train_set["travel_date"],infer_datetime_format=True)
 
+
+# add uber data
+# uber = udc.get_uber_data()
+# df_train_set = df_train_set.merge(uber, how='left', left_on='travel_date', right_on='Date')
+# df_train_set.drop('Date', axis=1, inplace=True)
+# df_train_set = df_train_set.fillna(df_train_set['uber_travel_time_scaled'].mean())
+
+
 # remove month 2 and 3 2017
 mask = (df_train_set["travel_date"] >= '2017-04-01')
 df_train_set = df_train_set.loc[mask]
@@ -45,7 +54,6 @@ df_train_set = df_train_set.loc[mask]
 #change the full date to day of week
 df_train_set["month"] = df_train_set["travel_date"].dt.month 
 df_train_set["week"] = df_train_set["travel_date"].dt.week
-
 df_train_set["travel_date"] = df_train_set["travel_date"].dt.dayofweek 
 
 # encode car type
@@ -54,11 +62,11 @@ car_type_categories = df_train_set.car_type.cat.categories
 df_train_set["car_type"] = df_train_set.car_type.cat.codes
 
 # encode travel_from
-df_train_set["travel_from"] = pd.Categorical(df_train_set["travel_from"])
-travel_from_categories = df_train_set.travel_from.cat.categories
-df_train_set["travel_from"] = df_train_set.travel_from.cat.codes
+# df_train_set["travel_from"] = pd.Categorical(df_train_set["travel_from"])
+# travel_from_categories = df_train_set.travel_from.cat.categories
+# df_train_set["travel_from"] = df_train_set.travel_from.cat.codes
 
-# df_train_set = pd.concat([df_train_set, pd.get_dummies(df_train_set['travel_from'], prefix='travel_from')], axis=1).drop(['travel_from'], axis=1)
+df_train_set = pd.concat([df_train_set, pd.get_dummies(df_train_set['travel_from'], prefix='travel_from')], axis=1).drop(['travel_from'], axis=1)
 
 
 #express travel time in minutes
@@ -69,6 +77,7 @@ df_train_set["travel_time"] = pd.to_datetime(df_train_set["travel_time"],infer_d
 df_train_set["hour_booked"] = df_train_set["travel_time"].dt.hour
 df_train_set["minute_booked"] = df_train_set["travel_time"].dt.minute
 df_train_set.drop('travel_time', axis=1, inplace=True)
+
 
 
 # create is_weekend feature
@@ -89,6 +98,12 @@ X_train, X_test, y_train, y_test = model_selection.train_test_split(X, y, test_s
 
 # # df_test_set = df_test_set.replace(['Kendu Bay', 'Oyugis', 'Keumbu'], 'other')
 # df_test_set["travel_date"] = pd.to_datetime(df_test_set["travel_date"],infer_datetime_format=True)
+
+# df_test_set = df_test_set.merge(uber, how='left', left_on='travel_date', right_on='Date')
+# df_test_set.drop('Date', axis=1, inplace=True)
+# df_test_set = df_test_set.fillna(df_test_set['uber_travel_time_scaled'].mean())
+
+
 # df_test_set["month"] = df_test_set["travel_date"].dt.month 
 # df_test_set["week"] = df_test_set["travel_date"].dt.week 
 
@@ -111,43 +126,18 @@ X_train, X_test, y_train, y_test = model_selection.train_test_split(X, y, test_s
 # X_test = df_test_set.drop(['ride_id', 'max_capacity'], axis=1)
 
 
-model = RandomForestRegressor(
-        n_estimators=100, 
-        criterion="mae", 
-        max_depth=10, 
-        min_samples_split=9, 
-        min_samples_leaf=1, 
-        min_weight_fraction_leaf=0, 
-        max_leaf_nodes=None, 
-        min_impurity_decrease=0.0005, 
-        oob_score=True,
-        random_state=1)
-
+model = LinearRegression()
 
 bags = 5
 seed = 1
 
 bagged_prediction_rf = np.zeros(X_test.shape[0])
 
-for n in range(0, bags):
-    print('bag: ', n)
-    model.set_params(random_state=seed + n)
-    model.fit(X_train, y_train)
-    preds = model.predict(X_test)
-    bagged_prediction_rf += preds
+model.fit(X_train, y_train)
+bagged_prediction_rf = model.predict(X_test)
 
-bagged_prediction_rf /= bags
 
 print(mean_absolute_error(y_test, np.round(bagged_prediction_rf)))
-
-test = np.round(bagged_prediction_rf)
-
-# unique, counts = np.unique(test, return_counts=True)
-# print(dict(zip(unique, counts)))
-
-# unique, counts = np.unique(y_test, return_counts=True)
-# print(dict(zip(unique, counts)))
-
 
 
 # d = {'ride_id': df_test_set["ride_id"], 'number_of_ticket': np.round(bagged_prediction_rf)}
@@ -155,6 +145,7 @@ test = np.round(bagged_prediction_rf)
 # df_predictions = df_predictions[['ride_id','number_of_ticket']]
 
 # df_predictions.to_csv('results1.csv', index=False)
+
 
 
 

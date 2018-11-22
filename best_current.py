@@ -45,7 +45,6 @@ df_train_set = df_train_set.loc[mask]
 #change the full date to day of week
 df_train_set["month"] = df_train_set["travel_date"].dt.month 
 df_train_set["week"] = df_train_set["travel_date"].dt.week
-
 df_train_set["travel_date"] = df_train_set["travel_date"].dt.dayofweek 
 
 # encode car type
@@ -82,33 +81,33 @@ X_train, X_test, y_train, y_test = model_selection.train_test_split(X, y, test_s
 
 
 # --------------------------------------------------------------------------------Test Set
-# df_test_set = pd.read_csv('test_questions.csv', low_memory=False)
+df_test_set = pd.read_csv('test_questions.csv', low_memory=False)
 
-# df_test_set.drop(['travel_to'], axis=1, inplace=True)
-# df_test_set = df_test_set.sort_values('travel_date', ascending=False)
+df_test_set.drop(['travel_to'], axis=1, inplace=True)
+df_test_set = df_test_set.sort_values('travel_date', ascending=False)
 
-# # df_test_set = df_test_set.replace(['Kendu Bay', 'Oyugis', 'Keumbu'], 'other')
-# df_test_set["travel_date"] = pd.to_datetime(df_test_set["travel_date"],infer_datetime_format=True)
-# df_test_set["month"] = df_test_set["travel_date"].dt.month 
-# df_test_set["week"] = df_test_set["travel_date"].dt.week 
+# df_test_set = df_test_set.replace(['Kendu Bay', 'Oyugis', 'Keumbu'], 'other')
+df_test_set["travel_date"] = pd.to_datetime(df_test_set["travel_date"],infer_datetime_format=True)
+df_test_set["month"] = df_test_set["travel_date"].dt.month 
+df_test_set["week"] = df_test_set["travel_date"].dt.week 
 
-# df_test_set["travel_date"] = df_test_set["travel_date"].dt.dayofweek
+df_test_set["travel_date"] = df_test_set["travel_date"].dt.dayofweek
 
-# df_test_set["car_type"] = pd.Categorical(df_test_set["car_type"], categories=car_type_categories)
-# df_test_set["car_type"] = df_test_set.car_type.cat.codes
+df_test_set["car_type"] = pd.Categorical(df_test_set["car_type"], categories=car_type_categories)
+df_test_set["car_type"] = df_test_set.car_type.cat.codes
 
-# df_test_set["travel_from"] = pd.Categorical(df_test_set["travel_from"], categories=travel_from_categories)
-# df_test_set["travel_from"] = df_test_set.travel_from.cat.codes
+df_test_set["travel_from"] = pd.Categorical(df_test_set["travel_from"], categories=travel_from_categories)
+df_test_set["travel_from"] = df_test_set.travel_from.cat.codes
 
-# # df_test_set["travel_time"] = df_test_set["travel_time"].str.split(':').apply(lambda x: int(x[0]) * 60 + int(x[1]))
-# df_test_set["travel_time"] = pd.to_datetime(df_test_set["travel_time"],infer_datetime_format=True)
-# df_test_set["hour_booked"] = df_test_set["travel_time"].dt.hour
-# df_test_set["minute_booked"] = df_test_set["travel_time"].dt.minute
-# df_test_set.drop('travel_time', axis=1, inplace=True)
+# df_test_set["travel_time"] = df_test_set["travel_time"].str.split(':').apply(lambda x: int(x[0]) * 60 + int(x[1]))
+df_test_set["travel_time"] = pd.to_datetime(df_test_set["travel_time"],infer_datetime_format=True)
+df_test_set["hour_booked"] = df_test_set["travel_time"].dt.hour
+df_test_set["minute_booked"] = df_test_set["travel_time"].dt.minute
+df_test_set.drop('travel_time', axis=1, inplace=True)
 
-# df_test_set['is_weekend'] = np.where(df_test_set['travel_date'] >= 5, 1, 0)
+df_test_set['is_weekend'] = np.where(df_test_set['travel_date'] >= 5, 1, 0)
 
-# X_test = df_test_set.drop(['ride_id', 'max_capacity'], axis=1)
+X_test = df_test_set.drop(['ride_id', 'max_capacity'], axis=1)
 
 
 model = RandomForestRegressor(
@@ -131,30 +130,36 @@ bagged_prediction_rf = np.zeros(X_test.shape[0])
 for n in range(0, bags):
     print('bag: ', n)
     model.set_params(random_state=seed + n)
-    model.fit(X_train, y_train)
+    model.fit(X, y)
     preds = model.predict(X_test)
     bagged_prediction_rf += preds
 
 bagged_prediction_rf /= bags
 
-print(mean_absolute_error(y_test, np.round(bagged_prediction_rf)))
+# print(mean_absolute_error(y_test, np.round(bagged_prediction_rf)))
 
 
-test = np.round(bagged_prediction_rf)
+d = {'ride_id': df_test_set["ride_id"], 'number_of_ticket': np.round(bagged_prediction_rf)}
+df_predictions = pd.DataFrame(data=d)
+df_predictions = df_predictions[['ride_id','number_of_ticket']]
 
-unique, counts = np.unique(test, return_counts=True)
-print(dict(zip(unique, counts)))
-
-unique, counts = np.unique(y_test, return_counts=True)
-print(dict(zip(unique, counts)))
+df_predictions.to_csv('results1.csv', index=False)
 
 
 
-# d = {'ride_id': df_test_set["ride_id"], 'number_of_ticket': np.round(bagged_prediction_rf)}
-# df_predictions = pd.DataFrame(data=d)
-# df_predictions = df_predictions[['ride_id','number_of_ticket']]
+# add function for feature importance
 
-# df_predictions.to_csv('results1.csv', index=False)
+
+# group by all features and remove those that are outliers (maybe)
+
+# add uber data
+
+# try Full GridSearch on Random Forrest
+
+# create as many features as possible, loop over all comvinations of features
+# this can be expanded to using this approach to loop over different algo's with different hyper params
+# the best combination of params/features under a threshold can be added to ensamble
+
 
 
 

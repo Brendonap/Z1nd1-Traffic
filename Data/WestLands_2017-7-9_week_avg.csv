@@ -1,0 +1,8 @@
+"Day Of Week","Origin Movement ID","Origin Display Name","Destination Movement ID","Destination Display Name","Date Range","Mean Travel Time (Seconds)","Range - Lower Bound Travel Time (Seconds)","Range - Upper Bound Travel Time (Seconds)"
+"Monday","258","Westlands, Nairobi","192","Central Business District, Nairobi","7/1/2017 - 9/30/2017, Daily Average",527,222,1251
+"Tuesday","258","Westlands, Nairobi","192","Central Business District, Nairobi","7/1/2017 - 9/30/2017, Daily Average",551,229,1326
+"Wednesday","258","Westlands, Nairobi","192","Central Business District, Nairobi","7/1/2017 - 9/30/2017, Daily Average",588,243,1424
+"Thursday","258","Westlands, Nairobi","192","Central Business District, Nairobi","7/1/2017 - 9/30/2017, Daily Average",569,239,1355
+"Friday","258","Westlands, Nairobi","192","Central Business District, Nairobi","7/1/2017 - 9/30/2017, Daily Average",542,227,1292
+"Saturday","258","Westlands, Nairobi","192","Central Business District, Nairobi","7/1/2017 - 9/30/2017, Daily Average",354,159,786
+"Sunday","258","Westlands, Nairobi","192","Central Business District, Nairobi","7/1/2017 - 9/30/2017, Daily Average",275,130,581

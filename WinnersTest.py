@@ -18,6 +18,8 @@ df_train_set.drop(['ride_id'], axis=1, inplace=True) #ride_id is unnecessary in 
 
 df_train_set["travel_date"] = pd.to_datetime(df_train_set["travel_date"],infer_datetime_format=True)
 
+# mask = (df_train_set["travel_date"] >= '2017-04-01')
+# df_train_set = df_train_set.loc[mask]
 
 df_train_set["travel_date"] = df_train_set["travel_date"].dt.dayofweek #change the full date to day of week
 
@@ -53,7 +55,7 @@ model = RandomForestRegressor(n_estimators=100, criterion="mae", n_jobs=-1, rand
 # print(sum(scores) / len(scores))
 
 
-model.fit(X_train, y_train)
+model.fit(X, y)
 preds_train_set = model.predict(X_test)
 
 print(mean_absolute_error(np.round(preds_train_set), y_test))
@@ -89,6 +91,6 @@ d = {'ride_id': df_test_set["ride_id"], 'number_of_ticket': test_set_predictions
 df_predictions = pd.DataFrame(data=d)
 df_predictions = df_predictions[['ride_id','number_of_ticket']]
 
-df_predictions.to_csv('results.csv', index=False)
+df_predictions.to_csv('predictions.csv', index=False)
 
 
