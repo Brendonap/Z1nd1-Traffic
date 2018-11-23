@@ -28,7 +28,7 @@ import sys
 class get_data:
 
     def get_training_data(self):
-        url = 'C:\\Users\\brendon.pitcher\\Documents\\Brendon\\Dev\\PlayTime\\Zindi\\TrafficJam\\train_revised.csv'
+        url = 'train_revised.csv'
         df = pd.read_csv(url)
         columns = ['ride_id', 'travel_date', 'travel_time', 'travel_from', 'car_type']
         df_train_set = df.groupby(columns).size().reset_index(name='number_of_tickets')
