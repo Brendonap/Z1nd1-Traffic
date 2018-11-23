@@ -35,15 +35,15 @@ class get_data:
         #df_train_set = df_train_set.sort_values('travel_date', ascending=False)
 
         #ride_id is unnecessary in training set
-        # df_train_set.drop(['ride_id'], axis=1, inplace=True) 
+        df_train_set.drop(['ride_id'], axis=1, inplace=True) 
 
         # convert travel date to datetime
         df_train_set = df_train_set.replace(['Kendu Bay', 'Oyugis', 'Keumbu'], 'other')
         df_train_set["travel_date"] = pd.to_datetime(df_train_set["travel_date"],infer_datetime_format=True)
 
         # remove month 2 and 3 2017
-        # mask = (df_train_set["travel_date"] >= '2017-04-01')
-        # df_train_set = df_train_set.loc[mask]
+        mask = (df_train_set["travel_date"] >= '2017-04-01')
+        df_train_set = df_train_set.loc[mask]
 
         #change the full date to day of week
         df_train_set["month"] = df_train_set["travel_date"].dt.month 
@@ -110,5 +110,5 @@ class get_data:
 
         df_test_set['is_weekend'] = np.where(df_test_set['travel_date'] >= 5, 1, 0)
 
-        X_test = df_test_set.drop(['max_capacity'], axis=1)
+        X_test = df_test_set.drop(['ride_id', 'max_capacity'], axis=1)
         return X_test
